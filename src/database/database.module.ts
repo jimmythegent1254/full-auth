@@ -1,3 +1,4 @@
+// src/database/database.module.ts
 import { Module } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { neon } from '@neondatabase/serverless';
@@ -12,13 +13,14 @@ export const DRIZZLE = 'DRIZZLE';
     {
       provide: DRIZZLE,
       useFactory: (configService: ConfigService) => {
-        const connectionString = configService.get<string>('DATABASE_URL');
+        const databaseUrl = configService.getOrThrow<string>('DATABASE_URL');
 
-        // Optional: Enable fetch connection cache for better performance
-        // neonConfig.fetchConnectionCache = true; (if you import neonConfig)
+        const client = neon(databaseUrl);
 
-        const sql = neon(connectionString!);
-        return drizzle(sql, { schema });
+        return drizzle(client, {
+          schema,
+          // logger: true,   // uncomment during development to see queries
+        });
       },
       inject: [ConfigService],
     },
