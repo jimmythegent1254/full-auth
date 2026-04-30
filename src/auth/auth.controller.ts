@@ -1,4 +1,11 @@
-import { Body, Controller, Post } from '@nestjs/common';
+import {
+  BadRequestException,
+  Body,
+  Controller,
+  Get,
+  Post,
+  Query,
+} from '@nestjs/common';
 import { AuthService } from './auth.service';
 import { SignupDto } from './dto/signup.dto';
 
@@ -9,5 +16,10 @@ export class AuthController {
   @Post('signup')
   signup(@Body() body: SignupDto) {
     return this.authService.signup(body.name, body.email, body.password);
+  }
+
+  @Get('verify')
+  async verifyEmail(@Query('token') token: string) {
+    return this.authService.verifyEmail(token);
   }
 }

@@ -1,10 +1,18 @@
-import { Injectable, ConflictException, Inject } from '@nestjs/common';
+import {
+  Injectable,
+  ConflictException,
+  Inject,
+  BadRequestException,
+} from '@nestjs/common';
 import { DRIZZLE } from '../database/database.module';
-import * as bcrypt from 'bcrypt';
 import * as schema from '../database/schema';
-import { eq } from 'drizzle-orm';
 import { NeonHttpDatabase } from 'drizzle-orm/neon-http';
 import { normalizeEmail, normalizeString } from '../common/utils/normalize';
+import { hashPassword } from './utils/password';
+import { toPublicUser } from './mappers/user.mapper';
+import { generateVerificationToken } from './utils/token';
+import { sendVerificationEmail } from './email.service';
+import { eq } from 'drizzle-orm';
 
 @Injectable()
 export class AuthService {
@@ -14,25 +22,12 @@ export class AuthService {
   ) {}
 
   async signup(name: string, email: string, password: string) {
-    // 1. normalize input FIRST
     const normalizedEmail = normalizeEmail(email);
     const normalizedName = normalizeString(name);
 
-    // 2. check if user exists (use normalized email!)
-    const existing = await this.db
-      .select()
-      .from(schema.users)
-      .where(eq(schema.users.email, normalizedEmail))
-      .limit(1);
+    const passwordHash = await hashPassword(password);
 
-    if (existing.length > 0) {
-      throw new ConflictException('User already exists');
-    }
-
-    // 3. hash password
-    const passwordHash = await bcrypt.hash(password, 10);
-
-    // 4. insert user
+    // 1. create user
     const [user] = await this.db
       .insert(schema.users)
       .values({
@@ -42,6 +37,55 @@ export class AuthService {
       })
       .returning();
 
-    return user;
+    const token = generateVerificationToken();
+    const expiresAt = new Date(Date.now() + 1000 * 60 * 60 * 24);
+
+    // 2. create token
+    await this.db.insert(schema.verificationTokens).values({
+      userId: user.id,
+      token,
+      expiresAt,
+      used: false,
+    });
+
+    // 3. send email
+    await sendVerificationEmail(user.email, token);
+
+    return toPublicUser(user);
+  }
+  async verifyEmail(token: string) {
+    const [record] = await this.db
+      .select()
+      .from(schema.verificationTokens)
+      .where(eq(schema.verificationTokens.token, token))
+      .limit(1);
+
+    if (!record) {
+      throw new BadRequestException('Invalid token');
+    }
+
+    if (record.used) {
+      throw new BadRequestException('Token already used');
+    }
+
+    if (record.expiresAt < new Date()) {
+      throw new BadRequestException('Token expired');
+    }
+
+    await this.db
+      .update(schema.verificationTokens)
+      .set({ used: true })
+      .where(eq(schema.verificationTokens.token, token));
+
+    await this.db
+      .update(schema.users)
+      .set({ isVerified: true })
+      .where(eq(schema.users.id, record.userId));
+
+    return { success: true };
+  }
+
+  private isUniqueViolation(err: any): boolean {
+    return err?.code === '23505' || err?.constraint === 'users_email_unique';
   }
 }
