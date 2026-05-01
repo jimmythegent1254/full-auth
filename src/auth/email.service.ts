@@ -1,4 +1,5 @@
 import { Resend } from 'resend';
+import { logger } from '../common/logger/logger';
 
 function getResendClient() {
   const key = process.env.RESEND_API_KEY;
@@ -11,7 +12,10 @@ function getResendClient() {
 }
 
 export async function sendVerificationEmail(email: string, token: string) {
-  console.log(`Sending verification email to ${email} with token ${token}`);
+  logger.info({
+    type: 'VERIFICATION_EMAIL_SENT',
+    email,
+  });
   const resend = getResendClient();
 
   const verificationLink = `http://localhost:3000/auth/verify?token=${token}`;
@@ -28,6 +32,10 @@ export async function sendVerificationEmail(email: string, token: string) {
 }
 
 export async function sendPasswordResetEmail(email: string, token: string) {
+  logger.info({
+    type: 'PASSWORD_RESET_EMAIL_SENT',
+    email,
+  });
   const resetLink = `https://your-frontend.com/reset-password?token=${token}`;
   const resend = getResendClient();
 

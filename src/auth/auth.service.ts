@@ -11,6 +11,7 @@ import { and, eq, gt, isNull } from 'drizzle-orm';
 import { AppError } from '../common/errors/app.error';
 import { ERROR_CODES } from '../common/errors/error-codes';
 import { AuditService } from 'src/common/audit/audit.service';
+import { logger } from '../common/logger/logger';
 import { generateSessionId } from './utils/session';
 import { generateResetToken, hashToken } from './utils/reset-token';
 import { passwordResetTokens } from '../database/schema';
@@ -39,11 +40,33 @@ export class AuthService {
 
     if (!user) {
       await this.fakePasswordDelay();
+      logger.warn({
+        type: 'SIGNIN_FAILED',
+        reason: 'USER_NOT_FOUND',
+        email: normalizedEmail,
+        ip: meta?.ip,
+      });
+      this.audit.logSigninFailure({
+        email: normalizedEmail,
+        reason: 'USER_NOT_FOUND',
+        ip: meta?.ip,
+      });
       throw new AppError(ERROR_CODES.INVALID_CREDENTIALS, 401);
     }
 
     if (!user.isVerified) {
       await this.fakePasswordDelay();
+      logger.warn({
+        type: 'SIGNIN_FAILED',
+        reason: 'EMAIL_NOT_VERIFIED',
+        email: normalizedEmail,
+        ip: meta?.ip,
+      });
+      this.audit.logSigninFailure({
+        email: normalizedEmail,
+        reason: 'EMAIL_NOT_VERIFIED',
+        ip: meta?.ip,
+      });
       throw new AppError(ERROR_CODES.INVALID_CREDENTIALS, 401);
     }
 
@@ -51,6 +74,17 @@ export class AuthService {
 
     if (!isValid) {
       await this.fakePasswordDelay();
+      logger.warn({
+        type: 'SIGNIN_FAILED',
+        reason: 'INVALID_PASSWORD',
+        email: normalizedEmail,
+        ip: meta?.ip,
+      });
+      this.audit.logSigninFailure({
+        email: normalizedEmail,
+        reason: 'INVALID_PASSWORD',
+        ip: meta?.ip,
+      });
       throw new AppError(ERROR_CODES.INVALID_CREDENTIALS, 401);
     }
 
@@ -71,6 +105,19 @@ export class AuthService {
       expiresAt,
       ip: meta?.ip,
       userAgent: deviceLabel,
+    });
+
+    logger.info({
+      type: 'SIGNIN_SUCCESS',
+      userId: user.id,
+      email: user.email,
+      ip: meta?.ip,
+    });
+
+    this.audit.logSigninSuccess({
+      userId: user.id,
+      email: user.email,
+      ip: meta?.ip,
     });
 
     return {
@@ -143,6 +190,15 @@ export class AuthService {
       .set({ revokedAt: new Date() })
       .where(eq(schema.sessions.id, sessionId));
 
+    logger.info({
+      type: 'LOGOUT',
+      sessionId,
+    });
+
+    this.audit.logSignout({
+      sessionId,
+    });
+
     return { success: true };
   }
 
@@ -151,6 +207,16 @@ export class AuthService {
       .update(schema.sessions)
       .set({ revokedAt: new Date() })
       .where(eq(schema.sessions.userId, userId));
+
+    logger.info({
+      type: 'LOGOUT_ALL',
+      userId,
+    });
+
+    this.audit.logSignout({
+      userId,
+      allSessions: true,
+    });
 
     return { success: true };
   }
@@ -200,7 +266,19 @@ export class AuthService {
       .where(eq(schema.users.email, email))
       .limit(1);
 
-    if (!user) return { success: true };
+    if (!user) {
+      logger.warn({
+        type: 'PASSWORD_RESET_REQUEST_FAILED',
+        reason: 'USER_NOT_FOUND',
+        email,
+      });
+      this.audit.logPasswordResetRequest({
+        email,
+        success: false,
+        reason: 'USER_NOT_FOUND',
+      });
+      return { success: true };
+    }
 
     const token = generateResetToken();
     const tokenHash = hashToken(token);
@@ -215,6 +293,18 @@ export class AuthService {
 
     await sendPasswordResetEmail(user.email, token);
 
+    logger.info({
+      type: 'PASSWORD_RESET_REQUEST_SENT',
+      userId: user.id,
+      email: user.email,
+    });
+
+    this.audit.logPasswordResetRequest({
+      email,
+      success: true,
+      userId: user.id,
+    });
+
     return { success: true };
   }
 
@@ -228,9 +318,43 @@ export class AuthService {
       .limit(1)
       .then((res) => res[0]);
 
-    if (!record) throw new Error('Invalid token');
-    if (record.used) throw new Error('Token already used');
-    if (record.expiresAt < new Date()) throw new Error('Token expired');
+    if (!record) {
+      logger.warn({
+        type: 'PASSWORD_RESET_FAILED',
+        reason: 'INVALID_TOKEN',
+      });
+      this.audit.logPasswordReset({
+        success: false,
+        reason: 'INVALID_TOKEN',
+      });
+      throw new Error('Invalid token');
+    }
+    if (record.used) {
+      logger.warn({
+        type: 'PASSWORD_RESET_FAILED',
+        reason: 'TOKEN_ALREADY_USED',
+        userId: record.userId,
+      });
+      this.audit.logPasswordReset({
+        userId: record.userId,
+        success: false,
+        reason: 'TOKEN_ALREADY_USED',
+      });
+      throw new Error('Token already used');
+    }
+    if (record.expiresAt < new Date()) {
+      logger.warn({
+        type: 'PASSWORD_RESET_FAILED',
+        reason: 'TOKEN_EXPIRED',
+        userId: record.userId,
+      });
+      this.audit.logPasswordReset({
+        userId: record.userId,
+        success: false,
+        reason: 'TOKEN_EXPIRED',
+      });
+      throw new Error('Token expired');
+    }
 
     // 1. update password
     const hashedPassword = await hashPassword(newPassword);
@@ -252,6 +376,16 @@ export class AuthService {
       .set({ revokedAt: new Date() })
       .where(eq(schema.sessions.userId, record.userId));
 
+    logger.info({
+      type: 'PASSWORD_RESET_SUCCESS',
+      userId: record.userId,
+    });
+
+    this.audit.logPasswordReset({
+      userId: record.userId,
+      success: true,
+    });
+
     return { success: true };
   }
 
@@ -264,6 +398,14 @@ export class AuthService {
 
     // constant error (no leaks)
     if (!record || record.used || record.expiresAt < new Date()) {
+      logger.warn({
+        type: 'EMAIL_VERIFICATION_FAILED',
+        reason: 'INVALID_TOKEN',
+      });
+      this.audit.logEmailVerification({
+        success: false,
+        reason: 'INVALID_TOKEN',
+      });
       throw new AppError(ERROR_CODES.UNKNOWN, 400);
     }
 
@@ -277,6 +419,16 @@ export class AuthService {
       .update(schema.users)
       .set({ isVerified: true })
       .where(eq(schema.users.id, record.userId));
+
+    logger.info({
+      type: 'EMAIL_VERIFICATION_SUCCESS',
+      userId: record.userId,
+    });
+
+    this.audit.logEmailVerification({
+      userId: record.userId,
+      success: true,
+    });
 
     return { success: true };
   }
