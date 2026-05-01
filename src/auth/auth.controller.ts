@@ -1,7 +1,9 @@
-import { Body, Controller, Get, Post, Query } from '@nestjs/common';
+import { Body, Controller, Get, Post, Query, Req } from '@nestjs/common';
+import { Request } from 'express';
 import { AuthService } from './auth.service';
 import { SignupDto } from './dto/signup.dto';
 import { Throttle } from '@nestjs/throttler';
+import { IpAddress } from 'src/common/decorators/ip.decorator';
 
 @Controller('auth')
 export class AuthController {
@@ -9,8 +11,8 @@ export class AuthController {
 
   @Post('signup')
   @Throttle({ default: { limit: 5, ttl: 60_000 } })
-  signup(@Body() body: SignupDto) {
-    return this.authService.signup(body.name, body.email, body.password);
+  signup(@Body() body: SignupDto, @IpAddress() ip: string) {
+    return this.authService.signup(body.name, body.email, body.password, ip);
   }
 
   @Get('verify')

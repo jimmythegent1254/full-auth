@@ -10,15 +10,17 @@ import { sendVerificationEmail } from './email.service';
 import { eq } from 'drizzle-orm';
 import { AppError } from '../common/errors/app.error';
 import { ERROR_CODES } from '../common/errors/error-codes';
+import { AuditService } from 'src/common/audit/audit.service';
 
 @Injectable()
 export class AuthService {
   constructor(
     @Inject(DRIZZLE)
     private readonly db: NeonHttpDatabase<typeof schema>,
+    private readonly audit: AuditService,
   ) {}
 
-  async signup(name: string, email: string, password: string) {
+  async signup(name: string, email: string, password: string, ip?: string) {
     const normalizedEmail = normalizeEmail(email);
     const normalizedName = normalizeString(name);
 
@@ -46,6 +48,12 @@ export class AuthService {
         used: false,
       });
 
+      this.audit.logSignupSuccess({
+        userId: user.id,
+        email: user.email,
+        ip,
+      });
+
       // 3. send email
       await sendVerificationEmail(user.email, token);
 
@@ -55,6 +63,12 @@ export class AuthService {
       if (this.isUniqueViolation(err)) {
         throw new AppError(ERROR_CODES.ACCOUNT_EXISTS, 400);
       }
+
+      this.audit.logSignupFailure({
+        email: normalizedEmail,
+        reason: 'UNKNOWN_ERROR',
+        ip,
+      });
 
       throw err; // let global filter handle unknowns
     }
