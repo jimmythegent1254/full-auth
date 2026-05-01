@@ -1,15 +1,2 @@
-export const ERROR_CODES = {
-  UNKNOWN: 'UNKNOWN',
-  VALIDATION_ERROR: 'VALIDATION_ERROR',
-  UNAUTHORIZED: 'UNAUTHORIZED',
-  FORBIDDEN: 'FORBIDDEN',
-
-  INVALID_CREDENTIALS: 'INVALID_CREDENTIALS',
-  ACCOUNT_EXISTS: 'ACCOUNT_EXISTS',
-
-  RATE_LIMITED: 'RATE_LIMITED',
-
-  INTERNAL_ERROR: 'INTERNAL_ERROR',
-} as const;
-
-export type ErrorCode = (typeof ERROR_CODES)[keyof typeof ERROR_CODES];
+// Re-export from centralized types for backward compatibility
+export { ERROR_CODES, type ErrorCode } from '../../types/common/error-code';

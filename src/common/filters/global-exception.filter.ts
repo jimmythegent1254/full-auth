@@ -9,7 +9,7 @@ import { Request, Response } from 'express';
 import { AppError } from '../errors/app.error';
 import { ERROR_CODES } from '../errors/error-codes';
 import { logger } from '../logger/logger';
-import { ErrorCode } from '../errors/error-codes';
+import type { ErrorCode } from '../../types/common/error-code';
 
 @Catch()
 export class GlobalExceptionFilter implements ExceptionFilter {

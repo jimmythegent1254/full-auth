@@ -9,7 +9,7 @@ import { DRIZZLE } from '../../database/database.module';
 import * as schema from '../../database/schema';
 import { eq, and, isNull } from 'drizzle-orm';
 import { NeonHttpDatabase } from 'drizzle-orm/neon-http';
-import type { RequestWithUser } from '../types/request-with-user';
+import type { RequestWithUser } from '../../types/auth/request-with-user';
 
 @Injectable()
 export class SessionGuard implements CanActivate {

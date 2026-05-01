@@ -12,12 +12,11 @@ import {
 } from '@nestjs/common';
 import type { Response, Request } from 'express';
 import { AuthService } from './auth.service';
-import { SignupDto } from './dto/signup.dto';
+import { SignupDto, SigninDto } from '../types/dtos';
 import { Throttle } from '@nestjs/throttler';
 import { IpAddress } from 'src/common/decorators/ip.decorator';
-import { SigninDto } from './dto/signin.dto';
 import { SessionGuard } from './guards/session.guard';
-import type { RequestWithUser } from './types/request-with-user';
+import type { RequestWithUser } from '../types/auth/request-with-user';
 import { clearSessionCookie } from 'src/common/http/http-context';
 import { logger } from 'src/common/logger/logger';
 

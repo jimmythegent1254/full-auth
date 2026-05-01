@@ -1,7 +1,7 @@
 import { Controller, Get, UseGuards, Req } from '@nestjs/common';
 import { UsersService } from './users.service';
 import { SessionGuard } from '../auth/guards/session.guard';
-import type { RequestWithUser } from '../auth/types/request-with-user';
+import type { RequestWithUser } from '../types/auth/request-with-user';
 import { logger } from '../common/logger/logger';
 
 @Controller('users')

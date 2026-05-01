@@ -1,10 +1,2 @@
-import { ErrorCode } from '../errors/error-codes';
-
-export interface ErrorResponse {
-  success: false;
-  code: ErrorCode;
-  message: string;
-  statusCode: number;
-  timestamp: string;
-  path: string;
-}
+// Re-export from centralized types for backward compatibility
+export type { ErrorResponse } from '../../types/common/error-response';

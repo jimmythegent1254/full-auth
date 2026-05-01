@@ -1,5 +1,5 @@
 import { User } from '../../database/schema';
-import { PublicUser } from '../types/public-user';
+import type { PublicUser } from '../../types/auth/public-user';
 
 export function toPublicUser(user: User): PublicUser {
   return {
