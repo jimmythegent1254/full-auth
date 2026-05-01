@@ -1,20 +1,19 @@
-import { Injectable, Inject } from '@nestjs/common';
-import { DRIZZLE } from '../database/database.module';
-import * as schema from '../database/schema';
-import { NeonHttpDatabase } from 'drizzle-orm/neon-http';
-import { normalizeEmail, normalizeString } from '../utils/string/normalize';
-import { hashPassword, verifyPassword } from '../utils/crypto/password';
-import { toPublicUser } from './mappers/user.mapper';
-import { generateVerificationToken } from '../utils/crypto/token';
-import { sendPasswordResetEmail, sendVerificationEmail } from './email.service';
+import { Inject, Injectable } from '@nestjs/common';
 import { and, eq, gt, isNull } from 'drizzle-orm';
+import { NeonHttpDatabase } from 'drizzle-orm/neon-http';
+import { AuditService } from 'src/common/audit/audit.service';
 import { AppError } from '../common/errors/app.error';
 import { ERROR_CODES } from '../common/errors/error-codes';
-import { AuditService } from 'src/common/audit/audit.service';
 import { logger } from '../common/logger/logger';
-import { generateSessionId } from '../utils/crypto/session';
+import { DRIZZLE } from '../database/database.module';
+import * as schema from '../database/schema';
+import { hashPassword, verifyPassword } from '../utils/crypto/password';
 import { generateResetToken, hashToken } from '../utils/crypto/reset-token';
-import { passwordResetTokens } from '../database/schema';
+import { generateSessionId } from '../utils/crypto/session';
+import { generateVerificationToken } from '../utils/crypto/token';
+import { normalizeEmail, normalizeString } from '../utils/string/normalize';
+import { sendPasswordResetEmail, sendVerificationEmail } from './email.service';
+import { toPublicUser } from './mappers/user.mapper';
 const UAParser = require('ua-parser-js');
 
 @Injectable()
@@ -442,5 +441,66 @@ export class AuthService {
 
   private async fakePasswordDelay() {
     await new Promise((res) => setTimeout(res, 80));
+  }
+
+  async oauthLogin(profile: {
+    githubId: string;
+    email?: string;
+    name: string;
+  }) {
+    // 1. try find user by githubId OR email
+    let [user] = await this.db
+      .select()
+      .from(schema.users)
+      .where(eq(schema.users.email, profile.email ?? ''))
+      .limit(1);
+
+    // 2. create if not exists
+    if (!user) {
+      const [created] = await this.db
+        .insert(schema.users)
+        .values({
+          email: profile.email ?? `github_${profile.githubId}@placeholder.com`,
+          name: profile.name,
+          passwordHash: '', // no password
+          role: 'user',
+          isVerified: true,
+        })
+        .returning();
+
+      user = created;
+    }
+
+    // 3. create session (same as normal login)
+    const session = await this.createSession(user.id);
+
+    return {
+      user,
+      sessionId: session.id,
+    };
+  }
+
+  private async createSession(
+    userId: number,
+    meta?: { ip?: string; userAgent?: string },
+  ) {
+    const sessionId = crypto.randomUUID();
+
+    const expiresAt = new Date(
+      Date.now() + 1000 * 60 * 60 * 24 * 30, // 30 days
+    );
+
+    const [session] = await this.db
+      .insert(schema.sessions)
+      .values({
+        id: sessionId,
+        userId,
+        expiresAt,
+        ip: meta?.ip,
+        userAgent: meta?.userAgent,
+      })
+      .returning();
+
+    return session;
   }
 }

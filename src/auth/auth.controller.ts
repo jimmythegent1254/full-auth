@@ -10,15 +10,16 @@ import {
   Res,
   UseGuards,
 } from '@nestjs/common';
-import type { Response, Request } from 'express';
-import { AuthService } from './auth.service';
-import { SignupDto, SigninDto } from '../types/dtos';
+import { AuthGuard } from '@nestjs/passport';
 import { Throttle } from '@nestjs/throttler';
+import type { Request, Response } from 'express';
 import { IpAddress } from 'src/common/decorators/ip.decorator';
-import { SessionGuard } from './guards/session.guard';
-import type { RequestWithUser } from '../types/auth/request-with-user';
 import { clearSessionCookie } from 'src/common/http/http-context';
 import { logger } from 'src/common/logger/logger';
+import type { RequestWithUser } from '../types/auth/request-with-user';
+import { SigninDto, SignupDto } from '../types/dtos';
+import { AuthService } from './auth.service';
+import { SessionGuard } from './guards/session.guard';
 
 const isProd = process.env.NODE_ENV === 'production';
 
@@ -82,6 +83,7 @@ export class AuthController {
       isCurrent: s.id === currentSessionId,
     }));
   }
+
   @Delete('sessions/:id')
   @UseGuards(SessionGuard)
   async revokeSession(@Param('id') id: string, @Req() req: RequestWithUser) {
@@ -155,5 +157,25 @@ export class AuthController {
       type: 'EMAIL_VERIFICATION_ENDPOINT',
     });
     return this.authService.verifyEmail(token);
+  }
+
+  @Get('github')
+  @UseGuards(AuthGuard('github'))
+  githubLogin() {
+    // redirects to GitHub
+  }
+
+  @Get('github/callback')
+  @UseGuards(AuthGuard('github'))
+  async githubCallback(@Req() req, @Res({ passthrough: true }) res) {
+    const user = await this.authService.oauthLogin(req.user);
+
+    res.cookie('sessionId', user.sessionId, {
+      httpOnly: true,
+      secure: true,
+      sameSite: 'lax',
+    });
+
+    return user.user;
   }
 }
