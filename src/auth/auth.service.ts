@@ -1,9 +1,4 @@
-import {
-  Injectable,
-  ConflictException,
-  Inject,
-  BadRequestException,
-} from '@nestjs/common';
+import { Injectable, Inject } from '@nestjs/common';
 import { DRIZZLE } from '../database/database.module';
 import * as schema from '../database/schema';
 import { NeonHttpDatabase } from 'drizzle-orm/neon-http';
@@ -13,6 +8,8 @@ import { toPublicUser } from './mappers/user.mapper';
 import { generateVerificationToken } from './utils/token';
 import { sendVerificationEmail } from './email.service';
 import { eq } from 'drizzle-orm';
+import { AppError } from '../common/errors/app.error';
+import { ERROR_CODES } from '../common/errors/error-codes';
 
 @Injectable()
 export class AuthService {
@@ -27,32 +24,42 @@ export class AuthService {
 
     const passwordHash = await hashPassword(password);
 
-    // 1. create user
-    const [user] = await this.db
-      .insert(schema.users)
-      .values({
-        name: normalizedName,
-        email: normalizedEmail,
-        passwordHash,
-      })
-      .returning();
+    try {
+      // 1. create user
+      const [user] = await this.db
+        .insert(schema.users)
+        .values({
+          name: normalizedName,
+          email: normalizedEmail,
+          passwordHash,
+        })
+        .returning();
 
-    const token = generateVerificationToken();
-    const expiresAt = new Date(Date.now() + 1000 * 60 * 60 * 24);
+      // 2. create verification token
+      const token = generateVerificationToken();
+      const expiresAt = new Date(Date.now() + 1000 * 60 * 60 * 24);
 
-    // 2. create token
-    await this.db.insert(schema.verificationTokens).values({
-      userId: user.id,
-      token,
-      expiresAt,
-      used: false,
-    });
+      await this.db.insert(schema.verificationTokens).values({
+        userId: user.id,
+        token,
+        expiresAt,
+        used: false,
+      });
 
-    // 3. send email
-    await sendVerificationEmail(user.email, token);
+      // 3. send email
+      await sendVerificationEmail(user.email, token);
 
-    return toPublicUser(user);
+      return toPublicUser(user);
+    } catch (err: any) {
+      // handle unique constraint safely
+      if (this.isUniqueViolation(err)) {
+        throw new AppError(ERROR_CODES.ACCOUNT_EXISTS, 400);
+      }
+
+      throw err; // let global filter handle unknowns
+    }
   }
+
   async verifyEmail(token: string) {
     const [record] = await this.db
       .select()
@@ -60,23 +67,17 @@ export class AuthService {
       .where(eq(schema.verificationTokens.token, token))
       .limit(1);
 
-    if (!record) {
-      throw new BadRequestException('Invalid token');
+    // constant error (no leaks)
+    if (!record || record.used || record.expiresAt < new Date()) {
+      throw new AppError(ERROR_CODES.UNKNOWN, 400);
     }
 
-    if (record.used) {
-      throw new BadRequestException('Token already used');
-    }
-
-    if (record.expiresAt < new Date()) {
-      throw new BadRequestException('Token expired');
-    }
-
+    // delete token (better than marking used)
     await this.db
-      .update(schema.verificationTokens)
-      .set({ used: true })
+      .delete(schema.verificationTokens)
       .where(eq(schema.verificationTokens.token, token));
 
+    // activate user
     await this.db
       .update(schema.users)
       .set({ isVerified: true })
@@ -86,6 +87,9 @@ export class AuthService {
   }
 
   private isUniqueViolation(err: any): boolean {
-    return err?.code === '23505' || err?.constraint === 'users_email_unique';
+    return (
+      err?.code === '23505' || // postgres unique violation
+      err?.constraint === 'users_email_unique'
+    );
   }
 }
