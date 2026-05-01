@@ -31,63 +31,73 @@ export class AuthService {
   ) {
     const normalizedEmail = normalizeEmail(email);
 
-    const [user] = await this.db
+    // Find LOCAL account (not user)
+    const [account] = await this.db
       .select()
-      .from(schema.users)
-      .where(eq(schema.users.email, normalizedEmail))
+      .from(schema.accounts)
+      .where(
+        and(
+          eq(schema.accounts.provider, 'local'),
+          eq(schema.accounts.providerId, normalizedEmail),
+        ),
+      )
       .limit(1);
 
-    if (!user) {
+    // Prevent user enumeration + fake delay
+    if (!account || !account.passwordHash) {
       await this.fakePasswordDelay();
+
       logger.warn({
         type: 'SIGNIN_FAILED',
-        reason: 'USER_NOT_FOUND',
+        reason: 'ACCOUNT_NOT_FOUND',
         email: normalizedEmail,
         ip: meta?.ip,
       });
+
       this.audit.logSigninFailure({
         email: normalizedEmail,
-        reason: 'USER_NOT_FOUND',
+        reason: 'ACCOUNT_NOT_FOUND',
         ip: meta?.ip,
       });
+
       throw new AppError(ERROR_CODES.INVALID_CREDENTIALS, 401);
     }
 
-    if (!user.isVerified) {
-      await this.fakePasswordDelay();
-      logger.warn({
-        type: 'SIGNIN_FAILED',
-        reason: 'EMAIL_NOT_VERIFIED',
-        email: normalizedEmail,
-        ip: meta?.ip,
-      });
-      this.audit.logSigninFailure({
-        email: normalizedEmail,
-        reason: 'EMAIL_NOT_VERIFIED',
-        ip: meta?.ip,
-      });
-      throw new AppError(ERROR_CODES.INVALID_CREDENTIALS, 401);
-    }
-
-    const isValid = await verifyPassword(user.passwordHash, password);
+    // Verify password
+    const isValid = await verifyPassword(account.passwordHash, password);
 
     if (!isValid) {
       await this.fakePasswordDelay();
+
       logger.warn({
         type: 'SIGNIN_FAILED',
         reason: 'INVALID_PASSWORD',
         email: normalizedEmail,
         ip: meta?.ip,
       });
+
       this.audit.logSigninFailure({
         email: normalizedEmail,
         reason: 'INVALID_PASSWORD',
         ip: meta?.ip,
       });
+
       throw new AppError(ERROR_CODES.INVALID_CREDENTIALS, 401);
     }
 
-    // session creation
+    // Load user identity
+    const [user] = await this.db
+      .select()
+      .from(schema.users)
+      .where(eq(schema.users.id, account.userId))
+      .limit(1);
+
+    if (!user) {
+      // extremely rare case (data inconsistency)
+      throw new AppError(ERROR_CODES.INTERNAL_ERROR, 500);
+    }
+
+    // Create session
     const sessionId = generateSessionId();
 
     const expiresAt = new Date();
@@ -106,6 +116,7 @@ export class AuthService {
       userAgent: deviceLabel,
     });
 
+    // Logging
     logger.info({
       type: 'SIGNIN_SUCCESS',
       userId: user.id,
@@ -119,13 +130,15 @@ export class AuthService {
       ip: meta?.ip,
     });
 
+    // Return response
     return {
       user: {
         id: user.id,
         email: user.email,
         name: user.name,
+        role: user.role,
       },
-      sessionId, // sent to controller for cookie
+      sessionId,
     };
   }
 
@@ -133,20 +146,92 @@ export class AuthService {
     const normalizedEmail = normalizeEmail(email);
     const normalizedName = normalizeString(name);
 
-    const passwordHash = await hashPassword(password);
-
     try {
-      // 1. create user
+      // 🧱 1. Check if user already exists (identity level)
+      const existingUser = await this.db
+        .select()
+        .from(schema.users)
+        .where(eq(schema.users.email, normalizedEmail))
+        .limit(1)
+        .then((r) => r[0]);
+
+      if (existingUser) {
+        // 🔐 check if local account already exists
+        const existingLocalAccount = await this.db
+          .select()
+          .from(schema.accounts)
+          .where(
+            and(
+              eq(schema.accounts.userId, existingUser.id),
+              eq(schema.accounts.provider, 'local'),
+            ),
+          )
+          .limit(1)
+          .then((r) => r[0]);
+
+        // already has password login → block
+        if (existingLocalAccount) {
+          this.audit.logSignupFailure({
+            email: normalizedEmail,
+            reason: 'ACCOUNT_EXISTS',
+            ip,
+          });
+
+          throw new AppError(ERROR_CODES.ACCOUNT_EXISTS, 400);
+        }
+
+        // CASE: user exists via OAuth (e.g. GitHub) → add local login
+        const passwordHash = await hashPassword(password);
+
+        await this.db.insert(schema.accounts).values({
+          userId: existingUser.id,
+          provider: 'local',
+          providerId: normalizedEmail,
+          passwordHash,
+        });
+
+        // send verification email (important fix)
+        const token = generateVerificationToken();
+        const expiresAt = new Date(Date.now() + 1000 * 60 * 60 * 24);
+
+        await this.db.insert(schema.verificationTokens).values({
+          userId: existingUser.id,
+          token,
+          expiresAt,
+          used: false,
+        });
+
+        await sendVerificationEmail(existingUser.email, token);
+
+        this.audit.logSignupSuccess({
+          userId: existingUser.id,
+          email: existingUser.email,
+          ip,
+        });
+
+        return toPublicUser(existingUser);
+      }
+
       const [user] = await this.db
         .insert(schema.users)
         .values({
           name: normalizedName,
           email: normalizedEmail,
-          passwordHash,
+          isVerified: false,
         })
         .returning();
 
-      // 2. create verification token
+      // create local account
+      const passwordHash = await hashPassword(password);
+
+      await this.db.insert(schema.accounts).values({
+        userId: user.id,
+        provider: 'local',
+        providerId: normalizedEmail,
+        passwordHash,
+      });
+
+      // email verification
       const token = generateVerificationToken();
       const expiresAt = new Date(Date.now() + 1000 * 60 * 60 * 24);
 
@@ -157,29 +242,23 @@ export class AuthService {
         used: false,
       });
 
+      await sendVerificationEmail(user.email, token);
+
       this.audit.logSignupSuccess({
         userId: user.id,
         email: user.email,
         ip,
       });
 
-      // 3. send email
-      await sendVerificationEmail(user.email, token);
-
       return toPublicUser(user);
     } catch (err: any) {
-      // handle unique constraint safely
-      if (this.isUniqueViolation(err)) {
-        throw new AppError(ERROR_CODES.ACCOUNT_EXISTS, 400);
-      }
-
       this.audit.logSignupFailure({
         email: normalizedEmail,
         reason: 'UNKNOWN_ERROR',
         ip,
       });
 
-      throw err; // let global filter handle unknowns
+      throw err;
     }
   }
 
@@ -306,7 +385,6 @@ export class AuthService {
 
     return { success: true };
   }
-
   async resetPassword(token: string, newPassword: string) {
     const tokenHash = hashToken(token);
 
@@ -322,54 +400,68 @@ export class AuthService {
         type: 'PASSWORD_RESET_FAILED',
         reason: 'INVALID_TOKEN',
       });
+
       this.audit.logPasswordReset({
         success: false,
         reason: 'INVALID_TOKEN',
       });
+
       throw new Error('Invalid token');
     }
+
     if (record.used) {
       logger.warn({
         type: 'PASSWORD_RESET_FAILED',
         reason: 'TOKEN_ALREADY_USED',
         userId: record.userId,
       });
+
       this.audit.logPasswordReset({
         userId: record.userId,
         success: false,
         reason: 'TOKEN_ALREADY_USED',
       });
+
       throw new Error('Token already used');
     }
+
     if (record.expiresAt < new Date()) {
       logger.warn({
         type: 'PASSWORD_RESET_FAILED',
         reason: 'TOKEN_EXPIRED',
         userId: record.userId,
       });
+
       this.audit.logPasswordReset({
         userId: record.userId,
         success: false,
         reason: 'TOKEN_EXPIRED',
       });
+
       throw new Error('Token expired');
     }
 
-    // 1. update password
+    // 🔐 1. Hash new password
     const hashedPassword = await hashPassword(newPassword);
 
+    // 🧠 2. Update LOCAL account (NOT users anymore)
     await this.db
-      .update(schema.users)
+      .update(schema.accounts)
       .set({ passwordHash: hashedPassword })
-      .where(eq(schema.users.id, record.userId));
+      .where(
+        and(
+          eq(schema.accounts.userId, record.userId),
+          eq(schema.accounts.provider, 'local'),
+        ),
+      );
 
-    // 2. mark token used
+    // 🧨 3. Mark token as used
     await this.db
       .update(schema.passwordResetTokens)
       .set({ used: true })
       .where(eq(schema.passwordResetTokens.id, record.id));
 
-    // 3. invalidate ALL sessions
+    // 🔒 4. Invalidate ALL sessions (security best practice)
     await this.db
       .update(schema.sessions)
       .set({ revokedAt: new Date() })
@@ -387,7 +479,6 @@ export class AuthService {
 
     return { success: true };
   }
-
   async verifyEmail(token: string) {
     const [record] = await this.db
       .select()
@@ -448,30 +539,64 @@ export class AuthService {
     email?: string;
     name: string;
   }) {
-    // 1. try find user by githubId OR email
-    let [user] = await this.db
+    // 🧱 1. Try find account by GitHub providerId
+    let account = await this.db
       .select()
-      .from(schema.users)
-      .where(eq(schema.users.email, profile.email ?? ''))
-      .limit(1);
+      .from(schema.accounts)
+      .where(
+        and(
+          eq(schema.accounts.provider, 'github'),
+          eq(schema.accounts.providerId, profile.githubId),
+        ),
+      )
+      .limit(1)
+      .then((res) => res[0]);
 
-    // 2. create if not exists
-    if (!user) {
-      const [created] = await this.db
-        .insert(schema.users)
-        .values({
-          email: profile.email ?? `github_${profile.githubId}@placeholder.com`,
-          name: profile.name,
-          passwordHash: '', // no password
-          role: 'user',
-          isVerified: true,
-        })
-        .returning();
+    let user: any;
 
-      user = created;
+    // 👇 CASE 1: existing GitHub account
+    if (account) {
+      user = await this.db
+        .select()
+        .from(schema.users)
+        .where(eq(schema.users.id, account.userId))
+        .then((res) => res[0]);
     }
 
-    // 3. create session (same as normal login)
+    // 🧠 2. If no account → try email linking
+    if (!account) {
+      if (profile.email) {
+        user = await this.db
+          .select()
+          .from(schema.users)
+          .where(eq(schema.users.email, profile.email))
+          .then((res) => res[0]);
+      }
+
+      // 👤 3. Create user if none exists
+      if (!user) {
+        const [createdUser] = await this.db
+          .insert(schema.users)
+          .values({
+            email:
+              profile.email ?? `github_${profile.githubId}@placeholder.com`,
+            name: profile.name,
+            isVerified: true,
+          })
+          .returning();
+
+        user = createdUser;
+      }
+
+      // 🔗 4. Create GitHub account linked to user
+      await this.db.insert(schema.accounts).values({
+        userId: user.id,
+        provider: 'github',
+        providerId: profile.githubId,
+      });
+    }
+
+    // 🍪 5. Create session
     const session = await this.createSession(user.id);
 
     return {

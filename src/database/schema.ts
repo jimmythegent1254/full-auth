@@ -1,17 +1,16 @@
-import { integer } from 'drizzle-orm/pg-core';
 import {
+  boolean,
+  integer,
   pgTable,
   serial,
-  varchar,
   timestamp,
-  boolean,
+  varchar,
 } from 'drizzle-orm/pg-core';
 
 export const users = pgTable('users', {
   id: serial('id').primaryKey(),
   name: varchar('name', { length: 255 }).notNull(),
   email: varchar('email', { length: 255 }).notNull().unique(),
-  passwordHash: varchar('password_hash', { length: 255 }).notNull(),
   role: varchar('role', { length: 50 }).notNull().default('user'),
   createdAt: timestamp('created_at').defaultNow().notNull(),
   isVerified: boolean('is_verified').notNull().default(false),
@@ -46,6 +45,17 @@ export const passwordResetTokens = pgTable('password_reset_tokens', {
   tokenHash: varchar('token_hash', { length: 255 }).notNull(),
   expiresAt: timestamp('expires_at').notNull(),
   used: boolean('used').default(false).notNull(),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+});
+
+export const accounts = pgTable('accounts', {
+  id: serial('id').primaryKey(),
+  userId: integer('user_id')
+    .notNull()
+    .references(() => users.id, { onDelete: 'cascade' }),
+  provider: varchar('provider', { length: 50 }).notNull(),
+  providerId: varchar('provider_id', { length: 255 }).notNull(),
+  passwordHash: varchar('password_hash', { length: 255 }),
   createdAt: timestamp('created_at').defaultNow().notNull(),
 });
 
