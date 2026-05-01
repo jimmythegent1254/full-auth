@@ -6,6 +6,8 @@ import { Throttle } from '@nestjs/throttler';
 import { IpAddress } from 'src/common/decorators/ip.decorator';
 import { SigninDto } from './dto/signin.dto';
 
+const isProd = process.env.NODE_ENV === 'production';
+
 @Controller('auth')
 export class AuthController {
   constructor(private readonly authService: AuthService) {}
@@ -31,8 +33,9 @@ export class AuthController {
 
     res.cookie('sessionId', result.sessionId, {
       httpOnly: true,
-      secure: true, // false in dev if needed
+      secure: isProd, // false in dev if needed
       sameSite: 'lax',
+      path: '/',
       maxAge: 1000 * 60 * 60 * 24 * 30, // 30 days
     });
 

@@ -26,23 +26,19 @@ export class AuthService {
     password: string,
     meta?: { ip?: string; userAgent?: string },
   ) {
-    console.log('AuthService.signin called with email:', email);
     const normalizedEmail = normalizeEmail(email);
 
-    console.log('Looking up user with email:', normalizedEmail);
     const [user] = await this.db
       .select()
       .from(schema.users)
       .where(eq(schema.users.email, normalizedEmail))
       .limit(1);
 
-    console.log('User lookup result:', user ? 'User found' : 'No user found');
     if (!user) {
       await this.fakePasswordDelay();
       throw new AppError(ERROR_CODES.INVALID_CREDENTIALS, 401);
     }
 
-    console.log('User isVerified status:', user.isVerified);
     if (!user.isVerified) {
       await this.fakePasswordDelay();
       throw new AppError(ERROR_CODES.INVALID_CREDENTIALS, 401);
@@ -50,7 +46,6 @@ export class AuthService {
 
     const isValid = await verifyPassword(user.passwordHash, password);
 
-    console.log('Password verification result:', isValid);
     if (!isValid) {
       await this.fakePasswordDelay();
       throw new AppError(ERROR_CODES.INVALID_CREDENTIALS, 401);
