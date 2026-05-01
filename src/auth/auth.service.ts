@@ -3,7 +3,7 @@ import { DRIZZLE } from '../database/database.module';
 import * as schema from '../database/schema';
 import { NeonHttpDatabase } from 'drizzle-orm/neon-http';
 import { normalizeEmail, normalizeString } from '../common/utils/normalize';
-import { hashPassword } from './utils/password';
+import { hashPassword, verifyPassword } from './utils/password';
 import { toPublicUser } from './mappers/user.mapper';
 import { generateVerificationToken } from './utils/token';
 import { sendVerificationEmail } from './email.service';
@@ -11,6 +11,7 @@ import { eq } from 'drizzle-orm';
 import { AppError } from '../common/errors/app.error';
 import { ERROR_CODES } from '../common/errors/error-codes';
 import { AuditService } from 'src/common/audit/audit.service';
+import { generateSessionId } from './utils/session';
 
 @Injectable()
 export class AuthService {
@@ -19,6 +20,65 @@ export class AuthService {
     private readonly db: NeonHttpDatabase<typeof schema>,
     private readonly audit: AuditService,
   ) {}
+
+  async signin(
+    email: string,
+    password: string,
+    meta?: { ip?: string; userAgent?: string },
+  ) {
+    console.log('AuthService.signin called with email:', email);
+    const normalizedEmail = normalizeEmail(email);
+
+    console.log('Looking up user with email:', normalizedEmail);
+    const [user] = await this.db
+      .select()
+      .from(schema.users)
+      .where(eq(schema.users.email, normalizedEmail))
+      .limit(1);
+
+    console.log('User lookup result:', user ? 'User found' : 'No user found');
+    if (!user) {
+      await this.fakePasswordDelay();
+      throw new AppError(ERROR_CODES.INVALID_CREDENTIALS, 401);
+    }
+
+    console.log('User isVerified status:', user.isVerified);
+    if (!user.isVerified) {
+      await this.fakePasswordDelay();
+      throw new AppError(ERROR_CODES.INVALID_CREDENTIALS, 401);
+    }
+
+    const isValid = await verifyPassword(user.passwordHash, password);
+
+    console.log('Password verification result:', isValid);
+    if (!isValid) {
+      await this.fakePasswordDelay();
+      throw new AppError(ERROR_CODES.INVALID_CREDENTIALS, 401);
+    }
+
+    // session creation
+    const sessionId = generateSessionId();
+
+    const expiresAt = new Date();
+    expiresAt.setDate(expiresAt.getDate() + 30); // 30 days
+
+    await this.db.insert(schema.sessions).values({
+      id: sessionId,
+      userId: user.id,
+      expiresAt,
+      ip: meta?.ip,
+      userAgent: meta?.userAgent,
+    });
+
+    return {
+      user: {
+        id: user.id,
+        email: user.email,
+        name: user.name,
+      },
+      sessionId, // sent to controller for cookie
+    };
+  }
 
   async signup(name: string, email: string, password: string, ip?: string) {
     const normalizedEmail = normalizeEmail(email);
@@ -105,5 +165,9 @@ export class AuthService {
       err?.code === '23505' || // postgres unique violation
       err?.constraint === 'users_email_unique'
     );
+  }
+
+  private async fakePasswordDelay() {
+    await new Promise((res) => setTimeout(res, 80));
   }
 }
