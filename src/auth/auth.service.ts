@@ -6,12 +6,14 @@ import { normalizeEmail, normalizeString } from '../common/utils/normalize';
 import { hashPassword, verifyPassword } from './utils/password';
 import { toPublicUser } from './mappers/user.mapper';
 import { generateVerificationToken } from './utils/token';
-import { sendVerificationEmail } from './email.service';
+import { sendPasswordResetEmail, sendVerificationEmail } from './email.service';
 import { and, eq, gt, isNull } from 'drizzle-orm';
 import { AppError } from '../common/errors/app.error';
 import { ERROR_CODES } from '../common/errors/error-codes';
 import { AuditService } from 'src/common/audit/audit.service';
 import { generateSessionId } from './utils/session';
+import { generateResetToken, hashToken } from './utils/reset-token';
+import { passwordResetTokens } from '../database/schema';
 const UAParser = require('ua-parser-js');
 
 @Injectable()
@@ -187,6 +189,69 @@ export class AuthService {
       .update(schema.sessions)
       .set({ revokedAt: new Date() })
       .where(eq(schema.sessions.id, sessionId));
+
+    return { success: true };
+  }
+
+  async requestPasswordReset(email: string) {
+    const [user] = await this.db
+      .select()
+      .from(schema.users)
+      .where(eq(schema.users.email, email))
+      .limit(1);
+
+    if (!user) return { success: true };
+
+    const token = generateResetToken();
+    const tokenHash = hashToken(token);
+
+    const expiresAt = new Date(Date.now() + 1000 * 60 * 15); // 15 min
+
+    await this.db.insert(schema.passwordResetTokens).values({
+      userId: user.id,
+      tokenHash,
+      expiresAt,
+    });
+
+    await sendPasswordResetEmail(user.email, token);
+
+    return { success: true };
+  }
+
+  async resetPassword(token: string, newPassword: string) {
+    const tokenHash = hashToken(token);
+
+    const [record] = await this.db
+      .select()
+      .from(schema.passwordResetTokens)
+      .where(eq(schema.passwordResetTokens.tokenHash, tokenHash))
+      .limit(1);
+
+    if (!record) {
+      throw new Error('Invalid token');
+    }
+
+    if (record.used) {
+      throw new Error('Token already used');
+    }
+
+    if (record.expiresAt < new Date()) {
+      throw new Error('Token expired');
+    }
+
+    const hashedPassword = await hashPassword(newPassword);
+
+    // update password
+    await this.db
+      .update(schema.users)
+      .set({ passwordHash: hashedPassword })
+      .where(eq(schema.users.id, record.userId));
+
+    // mark token used
+    await this.db
+      .update(passwordResetTokens)
+      .set({ used: true })
+      .where(eq(passwordResetTokens.id, record.id));
 
     return { success: true };
   }

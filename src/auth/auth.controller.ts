@@ -38,12 +38,10 @@ export class AuthController {
     @Req() req: Request,
     @Res({ passthrough: true }) res: Response,
   ) {
-    console.log('Signin attempt from IP:', req.ip);
     const result = await this.authService.signin(body.email, body.password, {
       ip: req.ip,
       userAgent: req.headers['user-agent'],
     });
-    console.log('Signin successful for user:', result.user.email);
 
     res.cookie('sessionId', result.sessionId, {
       httpOnly: true,
@@ -100,6 +98,16 @@ export class AuthController {
     clearSessionCookie(res);
 
     return { success: true };
+  }
+
+  @Post('password-reset/request')
+  async requestReset(@Body() body: { email: string }) {
+    return this.authService.requestPasswordReset(body.email);
+  }
+
+  @Post('password-reset/confirm')
+  async resetPassword(@Body() body: { token: string; newPassword: string }) {
+    return this.authService.resetPassword(body.token, body.newPassword);
   }
 
   @Get('verify')

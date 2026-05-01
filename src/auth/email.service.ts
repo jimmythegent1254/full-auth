@@ -26,3 +26,18 @@ export async function sendVerificationEmail(email: string, token: string) {
     `,
   });
 }
+
+export async function sendPasswordResetEmail(email: string, token: string) {
+  const resetLink = `https://your-frontend.com/reset-password?token=${token}`;
+  const resend = getResendClient();
+
+  return resend.emails.send({
+    from: 'onboarding@resend.dev',
+    to: email,
+    subject: 'Reset your password',
+    html: `
+      <h2>Reset your password</h2>
+      <a href="${resetLink}">Click to reset your password</a>
+    `,
+  });
+}
