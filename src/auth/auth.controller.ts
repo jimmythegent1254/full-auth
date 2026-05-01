@@ -1,10 +1,24 @@
-import { Body, Controller, Get, Post, Query, Req, Res } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Delete,
+  Get,
+  Param,
+  Post,
+  Query,
+  Req,
+  Res,
+  UseGuards,
+} from '@nestjs/common';
 import type { Response, Request } from 'express';
 import { AuthService } from './auth.service';
 import { SignupDto } from './dto/signup.dto';
 import { Throttle } from '@nestjs/throttler';
 import { IpAddress } from 'src/common/decorators/ip.decorator';
 import { SigninDto } from './dto/signin.dto';
+import { SessionGuard } from './guards/session.guard';
+import type { RequestWithUser } from './types/request-with-user';
+import { clearSessionCookie } from 'src/common/http/http-context';
 
 const isProd = process.env.NODE_ENV === 'production';
 
@@ -40,6 +54,52 @@ export class AuthController {
     });
 
     return result.user;
+  }
+
+  @Get('sessions')
+  @UseGuards(SessionGuard)
+  async getSessions(@Req() req: RequestWithUser) {
+    const sessions = await this.authService.getUserSessions(req.user!.id);
+
+    const currentSessionId = req.cookies.sessionId;
+
+    return sessions.map((s) => ({
+      ...s,
+      isCurrent: s.id === currentSessionId,
+    }));
+  }
+  @Delete('sessions/:id')
+  @UseGuards(SessionGuard)
+  async revokeSession(@Param('id') id: string, @Req() req: RequestWithUser) {
+    return this.authService.revokeSession(id, req.user!.id);
+  }
+
+  @Post('logout')
+  @UseGuards(SessionGuard)
+  async logout(
+    @Req() req: RequestWithUser,
+    @Res({ passthrough: true }) res: Response,
+  ) {
+    const sessionId = req.cookies?.sessionId;
+
+    await this.authService.logout(sessionId);
+
+    clearSessionCookie(res);
+
+    return { success: true };
+  }
+
+  @Post('logout-all')
+  @UseGuards(SessionGuard)
+  async logoutAll(
+    @Req() req: RequestWithUser,
+    @Res({ passthrough: true }) res: Response,
+  ) {
+    await this.authService.logoutAll(req.user!.id);
+
+    clearSessionCookie(res);
+
+    return { success: true };
   }
 
   @Get('verify')

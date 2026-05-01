@@ -7,11 +7,12 @@ import { hashPassword, verifyPassword } from './utils/password';
 import { toPublicUser } from './mappers/user.mapper';
 import { generateVerificationToken } from './utils/token';
 import { sendVerificationEmail } from './email.service';
-import { eq } from 'drizzle-orm';
+import { and, eq, gt, isNull } from 'drizzle-orm';
 import { AppError } from '../common/errors/app.error';
 import { ERROR_CODES } from '../common/errors/error-codes';
 import { AuditService } from 'src/common/audit/audit.service';
 import { generateSessionId } from './utils/session';
+const UAParser = require('ua-parser-js');
 
 @Injectable()
 export class AuthService {
@@ -57,12 +58,17 @@ export class AuthService {
     const expiresAt = new Date();
     expiresAt.setDate(expiresAt.getDate() + 30); // 30 days
 
+    const parser = new UAParser(meta?.userAgent);
+    const ua = parser.getResult();
+
+    const deviceLabel = `${ua.browser.name ?? 'Unknown'} on ${ua.os.name ?? 'Unknown'}`;
+
     await this.db.insert(schema.sessions).values({
       id: sessionId,
       userId: user.id,
       expiresAt,
       ip: meta?.ip,
-      userAgent: meta?.userAgent,
+      userAgent: deviceLabel,
     });
 
     return {
@@ -127,6 +133,62 @@ export class AuthService {
 
       throw err; // let global filter handle unknowns
     }
+  }
+
+  async logout(sessionId: string) {
+    await this.db
+      .update(schema.sessions)
+      .set({ revokedAt: new Date() })
+      .where(eq(schema.sessions.id, sessionId));
+
+    return { success: true };
+  }
+
+  async logoutAll(userId: number) {
+    await this.db
+      .update(schema.sessions)
+      .set({ revokedAt: new Date() })
+      .where(eq(schema.sessions.userId, userId));
+
+    return { success: true };
+  }
+
+  async getUserSessions(userId: number) {
+    return this.db
+      .select({
+        id: schema.sessions.id,
+        createdAt: schema.sessions.createdAt,
+        expiresAt: schema.sessions.expiresAt,
+        userAgent: schema.sessions.userAgent,
+        ip: schema.sessions.ip,
+      })
+      .from(schema.sessions)
+      .where(
+        and(
+          eq(schema.sessions.userId, userId),
+          isNull(schema.sessions.revokedAt),
+          gt(schema.sessions.expiresAt, new Date()),
+        ),
+      );
+  }
+
+  async revokeSession(sessionId: string, userId: number) {
+    const [session] = await this.db
+      .select()
+      .from(schema.sessions)
+      .where(eq(schema.sessions.id, sessionId))
+      .limit(1);
+
+    if (!session || session.userId !== userId) {
+      throw new AppError(ERROR_CODES.UNAUTHORIZED, 401);
+    }
+
+    await this.db
+      .update(schema.sessions)
+      .set({ revokedAt: new Date() })
+      .where(eq(schema.sessions.id, sessionId));
+
+    return { success: true };
   }
 
   async verifyEmail(token: string) {
