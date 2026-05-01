@@ -221,37 +221,36 @@ export class AuthService {
   async resetPassword(token: string, newPassword: string) {
     const tokenHash = hashToken(token);
 
-    const [record] = await this.db
+    const record = await this.db
       .select()
       .from(schema.passwordResetTokens)
       .where(eq(schema.passwordResetTokens.tokenHash, tokenHash))
-      .limit(1);
+      .limit(1)
+      .then((res) => res[0]);
 
-    if (!record) {
-      throw new Error('Invalid token');
-    }
+    if (!record) throw new Error('Invalid token');
+    if (record.used) throw new Error('Token already used');
+    if (record.expiresAt < new Date()) throw new Error('Token expired');
 
-    if (record.used) {
-      throw new Error('Token already used');
-    }
-
-    if (record.expiresAt < new Date()) {
-      throw new Error('Token expired');
-    }
-
+    // 1. update password
     const hashedPassword = await hashPassword(newPassword);
 
-    // update password
     await this.db
       .update(schema.users)
       .set({ passwordHash: hashedPassword })
       .where(eq(schema.users.id, record.userId));
 
-    // mark token used
+    // 2. mark token used
     await this.db
-      .update(passwordResetTokens)
+      .update(schema.passwordResetTokens)
       .set({ used: true })
-      .where(eq(passwordResetTokens.id, record.id));
+      .where(eq(schema.passwordResetTokens.id, record.id));
+
+    // 3. invalidate ALL sessions
+    await this.db
+      .update(schema.sessions)
+      .set({ revokedAt: new Date() })
+      .where(eq(schema.sessions.userId, record.userId));
 
     return { success: true };
   }
