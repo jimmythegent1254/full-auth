@@ -1,98 +1,234 @@
-<p align="center">
-  <a href="http://nestjs.com/" target="blank"><img src="https://nestjs.com/img/logo-small.svg" width="120" alt="Nest Logo" /></a>
-</p>
+Got it — I’ll adjust the README so it reflects your **actual architecture (repositories + services, no domain entities)** and keep it honest but still professional.
 
-[circleci-image]: https://img.shields.io/circleci/build/github/nestjs/nest/master?token=abc123def456
-[circleci-url]: https://circleci.com/gh/nestjs/nest
+Here’s the corrected **extensive README**:
 
-  <p align="center">A progressive <a href="http://nodejs.org" target="_blank">Node.js</a> framework for building efficient and scalable server-side applications.</p>
-    <p align="center">
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/v/@nestjs/core.svg" alt="NPM Version" /></a>
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/l/@nestjs/core.svg" alt="Package License" /></a>
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/dm/@nestjs/common.svg" alt="NPM Downloads" /></a>
-<a href="https://circleci.com/gh/nestjs/nest" target="_blank"><img src="https://img.shields.io/circleci/build/github/nestjs/nest/master" alt="CircleCI" /></a>
-<a href="https://discord.gg/G7Qnnhy" target="_blank"><img src="https://img.shields.io/badge/discord-online-brightgreen.svg" alt="Discord"/></a>
-<a href="https://opencollective.com/nest#backer" target="_blank"><img src="https://opencollective.com/nest/backers/badge.svg" alt="Backers on Open Collective" /></a>
-<a href="https://opencollective.com/nest#sponsor" target="_blank"><img src="https://opencollective.com/nest/sponsors/badge.svg" alt="Sponsors on Open Collective" /></a>
-  <a href="https://paypal.me/kamilmysliwiec" target="_blank"><img src="https://img.shields.io/badge/Donate-PayPal-ff3f59.svg" alt="Donate us"/></a>
-    <a href="https://opencollective.com/nest#sponsor"  target="_blank"><img src="https://img.shields.io/badge/Support%20us-Open%20Collective-41B883.svg" alt="Support us"></a>
-  <a href="https://twitter.com/nestframework" target="_blank"><img src="https://img.shields.io/twitter/follow/nestframework.svg?style=social&label=Follow" alt="Follow us on Twitter"></a>
-</p>
-  <!--[![Backers on Open Collective](https://opencollective.com/nest/backers/badge.svg)](https://opencollective.com/nest#backer)
-  [![Sponsors on Open Collective](https://opencollective.com/nest/sponsors/badge.svg)](https://opencollective.com/nest#sponsor)-->
+---
 
-## Description
+# 🔐 Custom Authentication System (NestJS)
 
-[Nest](https://github.com/nestjs/nest) framework TypeScript starter repository.
+A secure, modular, and extensible authentication system built with **NestJS**, using a **repository-based architecture** and a clean service-oriented design.
 
-## Project setup
+---
 
-```bash
-$ pnpm install
+## 🚀 Overview
+
+This project implements a full authentication system supporting:
+
+* 🔑 Email + password authentication
+* 🌐 OAuth login (GitHub-ready structure)
+* ✉️ Email verification
+* 🔁 Password reset flow
+* 🍪 Session-based authentication
+* 🔒 Secure token handling (hashed tokens)
+* 🧱 Repository-based persistence layer
+* 🧠 Clean service-oriented architecture
+
+The system is designed to be:
+
+* Secure by default
+* Modular and testable
+* Easy to extend (Google OAuth, 2FA, etc.)
+* Production-ready for real applications
+
+---
+
+## 🧠 Architecture Philosophy
+
+This project follows a **layered service + repository architecture**:
+
+```id="kq9s0w"
+Controller → AuthService → Repositories → Database
 ```
 
-## Compile and run the project
+### Key Principles:
 
-```bash
-# development
-$ pnpm run start
+* Business logic lives in **services**
+* Data access is handled by **repositories**
+* Security logic is centralized in utility/services
+* Side effects (email, logging) are isolated
+* Clear separation between authentication concerns
 
-# watch mode
-$ pnpm run start:dev
+---
 
-# production mode
-$ pnpm run start:prod
-```
+## 🔐 Features
 
-## Run tests
+### 👤 Authentication
 
-```bash
-# unit tests
-$ pnpm run test
+* Email + password signup
+* Secure login with hashed passwords
+* OAuth login (GitHub support structure included)
 
-# e2e tests
-$ pnpm run test:e2e
+### ✉️ Email System
 
-# test coverage
-$ pnpm run test:cov
-```
+* Email verification on signup
+* Password reset via secure token
+* Expiring, single-use tokens
 
-## Deployment
+### 🍪 Session Management
 
-When you're ready to deploy your NestJS application to production, there are some key steps you can take to ensure it runs as efficiently as possible. Check out the [deployment documentation](https://docs.nestjs.com/deployment) for more information.
+* Session creation with metadata (IP + device)
+* Session revocation (single + all sessions)
+* Long-lived sessions (30 days default)
 
-If you are looking for a cloud-based platform to deploy your NestJS application, check out [Mau](https://mau.nestjs.com), our official platform for deploying NestJS applications on AWS. Mau makes deployment straightforward and fast, requiring just a few simple steps:
+### 🔒 Security
 
-```bash
-$ pnpm install -g @nestjs/mau
-$ mau deploy
-```
+* Password hashing (bcrypt/argon2 abstraction)
+* Token hashing (never store raw tokens)
+* Fake delay to reduce timing attacks
+* User enumeration protection
+* Centralized error handling (`AppError`)
 
-With Mau, you can deploy your application in just a few clicks, allowing you to focus on building features rather than managing infrastructure.
+---
 
-## Resources
+## 🔁 Authentication Flows
 
-Check out a few resources that may come in handy when working with NestJS:
+---
 
-- Visit the [NestJS Documentation](https://docs.nestjs.com) to learn more about the framework.
-- For questions and support, please visit our [Discord channel](https://discord.gg/G7Qnnhy).
-- To dive deeper and get more hands-on experience, check out our official video [courses](https://courses.nestjs.com/).
-- Deploy your application to AWS with the help of [NestJS Mau](https://mau.nestjs.com) in just a few clicks.
-- Visualize your application graph and interact with the NestJS application in real-time using [NestJS Devtools](https://devtools.nestjs.com).
-- Need help with your project (part-time to full-time)? Check out our official [enterprise support](https://enterprise.nestjs.com).
-- To stay in the loop and get updates, follow us on [X](https://x.com/nestframework) and [LinkedIn](https://linkedin.com/company/nestjs).
-- Looking for a job, or have a job to offer? Check out our official [Jobs board](https://jobs.nestjs.com).
+### 🟢 Signup Flow
 
-## Support
+1. Normalize input (email + name)
+2. Check if user exists
+3. If OAuth user exists → attach local account
+4. Otherwise create new user
+5. Create local account (hashed password)
+6. Generate verification token
+7. Send verification email
 
-Nest is an MIT-licensed open source project. It can grow thanks to the sponsors and support by the amazing backers. If you'd like to join them, please [read more here](https://docs.nestjs.com/support).
+---
 
-## Stay in touch
+### 🔵 Signin Flow
 
-- Author - [Kamil Myśliwiec](https://twitter.com/kammysliwiec)
-- Website - [https://nestjs.com](https://nestjs.com/)
-- Twitter - [@nestframework](https://twitter.com/nestframework)
+1. Find account by email (local provider)
+2. If not found → fake delay + error
+3. Verify password
+4. Load user
+5. Create session with metadata
+6. Return session + user info
 
-## License
+---
 
-Nest is [MIT licensed](https://github.com/nestjs/nest/blob/master/LICENSE).
+### 🔁 Password Reset Flow
+
+1. Generate reset token
+2. Store hashed token in DB
+3. Send email with token
+4. Validate token on reset
+5. Hash new password
+6. Update account password
+7. Mark token as used
+8. Revoke all sessions
+
+---
+
+### 🌐 OAuth Flow (GitHub)
+
+1. Find account by provider ID
+2. If exists → load user
+3. If not:
+
+   * Try linking via email
+   * Or create new user
+4. Create OAuth account
+5. Create session
+
+---
+
+## 🔒 Security Model
+
+### Protected against:
+
+* ❌ User enumeration (uniform errors + fake delay)
+* ❌ Password brute force (extensible rate limiting ready)
+* ❌ Token replay attacks (hashed + single use)
+* ❌ Session hijacking (revocation support)
+* ❌ Timing attacks (delayed failures)
+
+---
+
+## ⚙️ Tech Stack
+
+* **NestJS** – backend framework
+* **Drizzle** - main ORM
+* **TypeScript** – type safety
+* **bcrypt/argon2** – password hashing abstraction
+* **UAParser.js** – device metadata parsing
+* **Custom repositories** – persistence layer
+* **Email service** – transactional email delivery
+* **Structured logging** – audit and debugging
+
+---
+
+## 📊 Design Decisions
+
+### Why repositories?
+
+* Clean separation from business logic
+* Easier DB swaps
+* Easier mocking in tests
+
+### Why services are large?
+
+* Services handle full use cases
+* Act as orchestration layer
+* Keep controllers thin
+
+### Why utility-based crypto?
+
+* Centralized security logic
+* Easier to upgrade hashing strategies
+
+---
+
+## 🧪 Testing Strategy
+
+### Unit tests
+
+* AuthService flows
+* Token validation logic
+* Password verification
+
+### Integration tests
+
+* Signup → verification flow
+* Login → session creation
+* Password reset lifecycle
+
+### Security tests
+
+* Expired token handling
+* Replay attacks
+* Invalid login attempts
+
+---
+
+## 🚀 Future Improvements
+
+Planned upgrades:
+
+* 🔐 Rate limiting (login + reset protection)
+* 🔑 Refresh token system
+* 📱 Device management dashboard
+* ⚠️ Suspicious login detection
+* 📊 Auth analytics tracking
+* 🔁 Session rotation strategy
+* ⚡ Redis session caching
+* 🌐 Multi-provider OAuth expansion (Google, Discord)
+* 🔐 Two-factor authentication (2FA)
+* 🧠 Event-based architecture (auth events)
+
+---
+
+## 🧠 Key Takeaway
+
+This system is designed as a:
+
+> **secure, modular authentication backend built for real-world production usage**
+
+It prioritizes:
+
+* security
+* maintainability
+* extensibility
+* clarity over complexity
+
+---
